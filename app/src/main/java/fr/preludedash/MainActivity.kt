@@ -38,6 +38,7 @@ import fr.preludedash.cluster.ClusterActivity
 import fr.preludedash.cluster.ClusterPrefs
 import fr.preludedash.cluster.ClusterService
 import fr.preludedash.cluster.Power
+import fr.preludedash.cluster.ScreenOff
 import fr.preludedash.data.CalStore
 import fr.preludedash.data.Calibration
 import fr.preludedash.data.IsrDecoder
@@ -185,7 +186,10 @@ class MainActivity : Activity() {
             button("Affichage par-dessus") { openOverlaySettings() },
             button("Batterie sans limite") { askBatteryExemption() },
         ))
-        col.addView(button("Notifications plein écran") { fixNotifications() }, lp(top = 8))
+        col.addView(row(
+            button("Notifications plein écran") { fixNotifications() },
+            button("Extinction de l'écran") { toggleScreenOff() },
+        ))
         col.addView(button("Ouvrir le combiné") { startActivity(Intent(this, ClusterActivity::class.java)) }, lp(top = 8))
         col.addView(hint(
             "Réglages Android du téléphone combiné : verrouillage de l'écran sur « Aucun », mise en veille de " +
@@ -351,6 +355,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 34) {
             lines += check(canFullScreen(), "Notifications plein écran autorisées", "Notifications plein écran à autoriser")
         }
+        lines += check(ScreenOff.isActive(this), "Extinction de l'écran autorisée", "Extinction de l'écran à autoriser")
         lines += if (Power.isPlugged(this)) "⚡ Alim branchée" else "🔋 Sur batterie"
         clusterText.text = lines.joinToString("\n")
     }
@@ -377,9 +382,25 @@ class MainActivity : Activity() {
             toast("Mode combiné activé : il s'allumera au branchement de l'alim")
         } else {
             ClusterService.stop(this)
+            // Sinon Android empêche de désinstaller l'appli
+            ScreenOff.remove(this)
             toast("Mode combiné coupé")
         }
         updateTexts()
+    }
+
+    /** Droit d'éteindre l'écran : le donner, ou le retirer s'il est déjà donné. */
+    private fun toggleScreenOff() {
+        if (ScreenOff.isActive(this)) {
+            ScreenOff.remove(this)
+            toast("Extinction retirée : l'écran baissera juste sa luminosité")
+            return
+        }
+        try {
+            startActivity(ScreenOff.requestIntent(this))
+        } catch (_: Exception) {
+            toast("Paramètres > Sécurité > Applis d'administration > Prelude Combiné")
+        }
     }
 
     /** Notifications, puis (Android 14+) notifications plein écran : les deux servent à rallumer l'écran. */

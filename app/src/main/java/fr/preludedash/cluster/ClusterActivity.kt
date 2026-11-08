@@ -191,8 +191,10 @@ class ClusterActivity : Activity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setLink(false)
         dash.paused = true
-        setBrightness(0f)
         updateBanner()
+        // Écran éteint tout de suite si le droit est donné, sinon au minimum
+        // (Android l'éteint alors à la fin de son délai de mise en veille)
+        if (!ScreenOff.turnOff(this)) setBrightness(0f)
     }
 
     private fun updateBanner() {
