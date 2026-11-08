@@ -28,6 +28,7 @@ import fr.preludedash.MainActivity
 import fr.preludedash.link.LinkManager
 import fr.preludedash.ui.DashRenderer
 import fr.preludedash.ui.DashView
+import java.lang.ref.WeakReference
 
 /**
  * Le combiné : tableau de bord plein écran, en paysage, sur le téléphone fixé dans la casquette.
@@ -40,7 +41,19 @@ import fr.preludedash.ui.DashView
 class ClusterActivity : Activity() {
     companion object {
         private const val SLEEP_DELAY_MS = 15_000L
+
+        @Volatile
+        private var current: WeakReference<ClusterActivity>? = null
+
+        /** Ferme le combiné s'il est ouvert (mode combiné coupé). */
+        fun closeIfOpen() {
+            current?.get()?.let { a -> a.runOnUiThread { a.finish() } }
+        }
     }
+
+    /** Mode combiné actif : allumage, écran toujours allumé et extinction gérés par l'alim. */
+    private val armed: Boolean
+        get() = ClusterPrefs.enabled(this)
 
     private lateinit var dash: DashView
     private lateinit var banner: TextView
@@ -72,17 +85,9 @@ class ClusterActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // S'affiche par-dessus l'écran de verrouillage et rallume l'écran
-        if (Build.VERSION.SDK_INT >= 27) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
-            )
-        }
-        dismissKeyguardIfInsecure()
+        current = WeakReference(this)
+        applyLockScreenMode()
+        if (armed) dismissKeyguardIfInsecure()
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         dash = DashView(this, "cluster", fill = true)
@@ -127,6 +132,7 @@ class ClusterActivity : Activity() {
         }
         ContextCompat.registerReceiver(this, power, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         registered = true
+        applyLockScreenMode()
         plugged = Power.isPlugged(this)
         // Ouvert à la main sur batterie (essai) : on reste allumé, seule une coupure d'alim met en veille
         wakeUp()
@@ -147,6 +153,27 @@ class ClusterActivity : Activity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        if (current?.get() === this) current = null
+        super.onDestroy()
+    }
+
+    /**
+     * Mode combiné actif : s'affiche par-dessus le verrouillage et rallume l'écran.
+     * Coupé : fenêtre normale, comme n'importe quelle appli.
+     */
+    private fun applyLockScreenMode() {
+        val on = armed
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(on)
+            setTurnScreenOn(on)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (on) window.addFlags(flags) else window.clearFlags(flags)
+        }
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideBars()
@@ -156,6 +183,8 @@ class ClusterActivity : Activity() {
 
     private fun onPower(on: Boolean) {
         plugged = on
+        // Mode combiné coupé : l'alim n'a plus aucun effet
+        if (!armed) return
         if (on) wakeUp() else startCountdown()
     }
 
@@ -164,7 +193,7 @@ class ClusterActivity : Activity() {
         ui.removeCallbacks(tick)
         sleepAt = 0L
         asleep = false
-        if (plugged) {
+        if (plugged && armed) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

@@ -341,7 +341,7 @@ class MainActivity : Activity() {
     /** État du combiné : ce qui est prêt et ce qui reste à autoriser. */
     private fun updateCluster(cal: Calibration) {
         val on = ClusterPrefs.enabled(this)
-        clusterButton.text = if (on) "Désactiver le mode combiné" else "Activer le mode combiné"
+        clusterButton.text = if (on) "Tout couper (fin du test)" else "Réactiver le combiné"
         val lines = mutableListOf(
             check(on, "Mode combiné actif", "Mode combiné coupé"),
             check(cal.deviceAddress != null || cal.demo, "Module Bluetooth choisi", "Module Bluetooth à choisir (ou mode démo)"),
@@ -381,10 +381,12 @@ class MainActivity : Activity() {
             ClusterService.start(this)
             toast("Mode combiné activé : il s'allumera au branchement de l'alim")
         } else {
+            // Tout couper : plus d'allumage au branchement ni au démarrage du tel, plus d'extinction
             ClusterService.stop(this)
-            // Sinon Android empêche de désinstaller l'appli
-            ScreenOff.remove(this)
-            toast("Mode combiné coupé")
+            ClusterService.cancelWakeNotice(this)
+            ScreenOff.remove(this) // sinon Android empêche aussi de désinstaller l'appli
+            ClusterActivity.closeIfOpen()
+            toast("Tout est coupé : le tel se comporte normalement. « Réactiver le combiné » pour reprendre.")
         }
         updateTexts()
     }
