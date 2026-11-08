@@ -93,7 +93,7 @@ class ClusterService : Service() {
             )
             val n = NotificationCompat.Builder(ctx, CH_WAKE)
                 .setSmallIcon(R.drawable.ic_launcher_fg)
-                .setContentTitle("Prelude Dash")
+                .setContentTitle("Prelude Combiné")
                 .setContentText("Contact mis : ouverture du combiné")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_NAVIGATION)

@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.NotificationManager
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -104,10 +105,23 @@ class MainActivity : Activity() {
     private fun hasBtPermission() = LinkManager.hasBtPermission(this)
 
     private fun askPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 31 && !hasBtPermission()) {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1)
+        val wanted = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 31 && !hasBtPermission()) wanted += Manifest.permission.BLUETOOTH_CONNECT
+        // Notifications : c'est par elles que le combiné rallume l'écran quand le tel est verrouillé
+        if (Build.VERSION.SDK_INT >= 33 && ClusterPrefs.enabled(this) && !hasNotifPermission()) {
+            wanted += Manifest.permission.POST_NOTIFICATIONS
         }
+        if (wanted.isNotEmpty()) requestPermissions(wanted.toTypedArray(), 1)
     }
+
+    private fun hasNotifPermission(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    /** Android 14+ : droit d'ouvrir le combiné en plein écran par-dessus le verrouillage. */
+    private fun canFullScreen(): Boolean =
+        Build.VERSION.SDK_INT < 34 ||
+            getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() ?: true
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -171,6 +185,7 @@ class MainActivity : Activity() {
             button("Affichage par-dessus") { openOverlaySettings() },
             button("Batterie sans limite") { askBatteryExemption() },
         ))
+        col.addView(button("Notifications plein écran") { fixNotifications() }, lp(top = 8))
         col.addView(button("Ouvrir le combiné") { startActivity(Intent(this, ClusterActivity::class.java)) }, lp(top = 8))
         col.addView(hint(
             "Réglages Android du téléphone combiné : verrouillage de l'écran sur « Aucun », mise en veille de " +
@@ -331,10 +346,10 @@ class MainActivity : Activity() {
             check(batteryUnrestricted(), "Batterie sans limite", "Optimisation de la batterie à couper"),
         )
         if (Build.VERSION.SDK_INT >= 33) {
-            lines += check(
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-                "Notifications autorisées", "Notifications à autoriser",
-            )
+            lines += check(hasNotifPermission(), "Notifications autorisées", "Notifications à autoriser")
+        }
+        if (Build.VERSION.SDK_INT >= 34) {
+            lines += check(canFullScreen(), "Notifications plein écran autorisées", "Notifications plein écran à autoriser")
         }
         lines += if (Power.isPlugged(this)) "⚡ Alim branchée" else "🔋 Sur batterie"
         clusterText.text = lines.joinToString("\n")
@@ -367,11 +382,43 @@ class MainActivity : Activity() {
         updateTexts()
     }
 
+    /** Notifications, puis (Android 14+) notifications plein écran : les deux servent à rallumer l'écran. */
+    private fun fixNotifications() {
+        when {
+            !hasNotifPermission() -> {
+                if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) ||
+                    getSharedPreferences("cluster", MODE_PRIVATE).getBoolean("notifAsked", false).not()
+                ) {
+                    getSharedPreferences("cluster", MODE_PRIVATE).edit().putBoolean("notifAsked", true).apply()
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+                } else {
+                    openAppNotificationSettings()
+                }
+            }
+            !canFullScreen() -> try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
+            } catch (_: Exception) {
+                toast("Paramètres > Applications > Accès spécial > Notifications plein écran")
+            }
+            else -> toast("Notifications déjà autorisées")
+        }
+    }
+
+    private fun openAppNotificationSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            )
+        } catch (_: Exception) {
+            toast("Paramètres > Applications > Prelude Combiné > Notifications")
+        }
+    }
+
     private fun openOverlaySettings() {
         try {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         } catch (_: Exception) {
-            toast("Paramètres > Applications > Prelude Dash > Afficher par-dessus les autres applis")
+            toast("Paramètres > Applications > Prelude Combiné > Afficher par-dessus les autres applis")
         }
     }
 
@@ -383,7 +430,7 @@ class MainActivity : Activity() {
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             } catch (_: Exception) {
-                toast("Paramètres > Batterie > Optimisation : Prelude Dash sur « Ne pas optimiser »")
+                toast("Paramètres > Batterie > Optimisation : Prelude Combiné sur « Ne pas optimiser »")
             }
         }
     }
