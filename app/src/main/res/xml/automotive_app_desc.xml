@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<automotiveApp>
+    <!-- Plein écran : appli de navigation (Car App Library). La carte est dans l'appli Prelude Carte. -->
+    <uses name="template" />
+</automotiveApp>

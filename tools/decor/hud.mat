@@ -1,0 +1,23 @@
+material {
+    name : hud,
+    shadingModel : unlit,
+    blending : transparent,
+    culling : none,
+    depthWrite : false,
+    depthCulling : false,
+    requires : [ uv0 ],
+    parameters : [
+        { type : sampler2d, name : hud, precision : medium },
+        { type : float, name : fade }
+    ]
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        // Image du tableau de bord, couleurs déjà prémultipliées par l'alpha (Bitmap Android)
+        vec4 c = texture(materialParams_hud, getUV0());
+        float k = 1.0 - materialParams.fade;
+        material.baseColor = vec4(c.rgb * k, 1.0 - (1.0 - c.a) * k);
+    }
+}

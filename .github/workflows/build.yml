@@ -1,0 +1,76 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Tests et compilation
+        shell: bash
+        # Jusqu'à 3 essais : les téléchargements de dépendances échouent parfois par timeout réseau
+        run: |
+          # Version de Filament réellement disponible (journalisée pour le diagnostic)
+          for a in filament-android gltfio-android filament-utils-android; do
+            echo "== $a" >> versions.log
+            curl -s "https://repo1.maven.org/maven2/com/google/android/filament/$a/maven-metadata.xml" | grep -E "<latest>|<release>" >> versions.log || true
+          done
+          cat versions.log
+          for i in 1 2 3; do
+            gradle --no-daemon --stacktrace \
+              -Dorg.gradle.internal.http.socketTimeout=180000 \
+              -Dorg.gradle.internal.http.connectionTimeout=180000 \
+              testReleaseUnitTest assembleRelease 2>&1 | tee build.log && exit 0
+            echo "Essai $i raté, nouvel essai dans 15 s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Renommer l'APK
+        run: cp app/build/outputs/apk/release/app-release.apk PreludeCombine.apk
+
+      - name: Publier l'APK (onglet Releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Prelude Combiné ${{ github.run_number }}
+          body: |
+            Version 1.0.${{ github.run_number }}, pour le téléphone combiné (OnePlus 7).
+            PreludeCombine.apk s'installe normalement : ouvre-le et autorise les applis inconnues.
+          files: PreludeCombine.apk
+          make_latest: true
+
+      # Résumé du build poussé sur une branche à part, pour diagnostiquer sans ouvrir GitHub
+      - name: Rapport de build
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/report
+          echo "${{ job.status }} run=${{ github.run_number }} sha=${{ github.sha }}" > /tmp/report/status.txt
+          if [ -f build.log ]; then tail -n 400 build.log > /tmp/report/build-tail.log; fi
+          if [ -f versions.log ]; then cp versions.log /tmp/report/versions.log; fi
+          git config user.name "build-bot"
+          git config user.email "build-bot@users.noreply.github.com"
+          git checkout --orphan ci-report
+          git rm -rf --quiet . || true
+          cp /tmp/report/* .
+          git add status.txt build-tail.log versions.log 2>/dev/null || git add status.txt
+          git commit -m "build ${{ github.run_number }}: ${{ job.status }}"
+          git push -f origin ci-report
